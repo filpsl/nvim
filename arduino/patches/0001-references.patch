@@ -1,0 +1,80 @@
+diff --git a/ls/ls.go b/ls/ls.go
+index b487f08..1504f2c 100644
+--- a/ls/ls.go
++++ b/ls/ls.go
+@@ -336,7 +336,7 @@ func (ls *INOLanguageServer) initializeReqFromIDE(ctx context.Context, logger js
+ 			// DeclarationProvider:             &lsp.DeclarationRegistrationOptions{},
+ 			DefinitionProvider: &lsp.DefinitionOptions{},
+ 			// ImplementationProvider:          &lsp.ImplementationRegistrationOptions{},
+-			// ReferencesProvider:              &lsp.ReferenceOptions{},
++			ReferencesProvider:        &lsp.ReferenceOptions{},
+ 			DocumentHighlightProvider: &lsp.DocumentHighlightOptions{},
+ 			DocumentSymbolProvider:    &lsp.DocumentSymbolOptions{},
+ 			CodeActionProvider: &lsp.CodeActionOptions{
+@@ -709,6 +709,50 @@ func (ls *INOLanguageServer) textDocumentImplementationReqFromIDE(ctx context.Co
+ 	return ideLocations, inoLocationLinks, nil
+ }
+ 
++func (ls *INOLanguageServer) textDocumentReferencesReqFromIDE(ctx context.Context, logger jsonrpc.FunctionLogger, ideParams *lsp.ReferenceParams) ([]lsp.Location, *jsonrpc.ResponseError) {
++	ls.readLock(logger, true)
++	defer ls.readUnlock(logger)
++
++	clangTextDocumentPosition, err := ls.ide2ClangTextDocumentPositionParams(logger, ideParams.TextDocumentPositionParams)
++	if err != nil {
++		logger.Logf("Error: %s", err)
++		return nil, &jsonrpc.ResponseError{Code: jsonrpc.ErrorCodesInternalError, Message: err.Error()}
++	}
++
++	clangParams := &lsp.ReferenceParams{
++		TextDocumentPositionParams: clangTextDocumentPosition,
++		WorkDoneProgressParams:     ideParams.WorkDoneProgressParams,
++		PartialResultParams:        ideParams.PartialResultParams,
++		Context:                    ideParams.Context,
++	}
++	clangLocations, clangErr, err := ls.Clangd.conn.TextDocumentReferences(ctx, clangParams)
++	if err != nil {
++		logger.Logf("clangd communication error: %v", err)
++		ls.Close()
++		return nil, &jsonrpc.ResponseError{Code: jsonrpc.ErrorCodesInternalError, Message: err.Error()}
++	}
++	if clangErr != nil {
++		logger.Logf("clangd response error: %v", clangErr.AsError())
++		return nil, &jsonrpc.ResponseError{Code: jsonrpc.ErrorCodesInternalError, Message: clangErr.AsError().Error()}
++	}
++
++	// Unlike clang2IdeLocationsArray, skip locations that fail to convert
++	// instead of failing the whole request: references may point anywhere.
++	ideLocations := []lsp.Location{}
++	for _, clangLocation := range clangLocations {
++		ideLocation, inPreprocessed, err := ls.clang2IdeLocation(logger, clangLocation)
++		if err != nil {
++			logger.Logf("ignored reference %s: %s", clangLocation, err)
++			continue
++		}
++		if inPreprocessed {
++			continue
++		}
++		ideLocations = append(ideLocations, ideLocation)
++	}
++	return ideLocations, nil
++}
++
+ func (ls *INOLanguageServer) textDocumentDocumentHighlightReqFromIDE(ctx context.Context, logger jsonrpc.FunctionLogger, ideParams *lsp.DocumentHighlightParams) ([]lsp.DocumentHighlight, *jsonrpc.ResponseError) {
+ 	ls.readLock(logger, true)
+ 	defer ls.readUnlock(logger)
+diff --git a/ls/lsp_server_ide.go b/ls/lsp_server_ide.go
+index 28228cf..e903501 100644
+--- a/ls/lsp_server_ide.go
++++ b/ls/lsp_server_ide.go
+@@ -133,9 +133,9 @@ func (server *IDELSPServer) TextDocumentImplementation(ctx context.Context, logg
+ 	return server.ls.textDocumentImplementationReqFromIDE(ctx, logger, params)
+ }
+ 
+-// TextDocumentReferences is not implemented
++// TextDocumentReferences sends a request to find all references to a symbol
+ func (server *IDELSPServer) TextDocumentReferences(ctx context.Context, logger jsonrpc.FunctionLogger, params *lsp.ReferenceParams) ([]lsp.Location, *jsonrpc.ResponseError) {
+-	panic("unimplemented")
++	return server.ls.textDocumentReferencesReqFromIDE(ctx, logger, params)
+ }
+ 
+ // TextDocumentDocumentHighlight sends a request to highlight a text document

@@ -1,0 +1,52 @@
+diff -ruN a/textedits/textedits.go b/textedits/textedits.go
+--- a/textedits/textedits.go	2026-10-18 23:15:01.253978738 -0300
++++ b/textedits/textedits.go	2026-10-18 23:15:01.255978702 -0300
+@@ -58,22 +58,30 @@
+ 		return lineOffset, nil
+ 	}
+ 
+-	// Find the character and return its offset within the text
++	// Find the character and return its offset within the text.
++	// pos.Character counts UTF-16 code units (the LSP default encoding), while
++	// offset is a byte offset into the UTF-8 text: they only match for ASCII.
+ 	var count = len(text[lineOffset:])
++	units := 0
+ 	for offset, c := range text[lineOffset:] {
+-		if character == offset {
++		if character > 0 && units >= character {
+ 			// We've found the character
+ 			return lineOffset + offset, nil
+ 		}
+ 		if c == '\n' {
+ 			// We've reached the end of line. LSP spec says we should default back to the line length.
+ 			// See https://microsoft.github.io/language-server-protocol/specifications/specification-3-14/#position
+-			if character > offset {
++			if character > 0 {
+ 				return lineOffset + offset, nil
+ 			}
+ 			count = offset
+ 			break
+ 		}
++		if c > 0xFFFF {
++			units += 2 // encoded as a surrogate pair in UTF-16
++		} else {
++			units++
++		}
+ 	}
+ 	if character > 0 {
+ 		// We've reached the end of the last line. Default to the text length (see above).
+diff -ruN a/textedits/textutils_test.go b/textedits/textutils_test.go
+--- a/textedits/textutils_test.go	2026-10-18 23:15:01.254978720 -0300
++++ b/textedits/textutils_test.go	2026-10-18 23:15:01.256978684 -0300
+@@ -128,6 +128,11 @@
+ 		{"foo\nba\nr\nbaz\n!", 1, -1, -1, OutOfRangeError{"Character", 2, -1}},
+ 		{"foo\nba\nr\nbaz\n!", 4, 20, 14, nil},
+ 		{"foo\nba\nr\nbaz!\n", 4, 0, 14, nil},
++		// multi-byte characters: Character is in UTF-16 code units
++		{"ação x", 0, 5, 7, nil},
++		{"// Saídas: ação\nfoo", 0, 14, 17, nil},
++		{"ção\nx", 0, 10, 5, nil},
++		{"a😀b", 0, 3, 5, nil},
+ 	}
+ 
+ 	for _, test := range tests {
