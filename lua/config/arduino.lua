@@ -407,6 +407,27 @@ function M.monitor(port)
   end
 end
 
+-- Abre o monitor; se já estiver aberto, fecha (e libera a porta). Se foi só
+-- escondido com `q` (o processo continua rodando), mostra de novo.
+function M.toggle_monitor()
+  if monitor_term and monitor_term:buf_valid() then
+    if monitor_term:win_valid() then
+      return stop_monitor()
+    end
+    return monitor_term:show()
+  end
+  M.monitor()
+end
+
+-- Fecha o painel de compilação/upload e o monitor
+function M.close_panels()
+  if build_term and build_term:buf_valid() then
+    build_term:close()
+  end
+  build_term = nil
+  stop_monitor()
+end
+
 function M.info()
   local dir = M.sketch_dir()
   if not dir then
@@ -429,7 +450,8 @@ function M.on_buffer(buf)
   map("<leader>av", M.verify, "Compilar (verify)")
   map("<leader>au", function() M.upload(false) end, "Upload")
   map("<leader>aU", function() M.upload(true) end, "Upload + monitor serial")
-  map("<leader>am", function() M.monitor() end, "Monitor serial")
+  map("<leader>am", M.toggle_monitor, "Monitor serial (abrir/fechar)")
+  map("<leader>aq", M.close_panels, "Fechar painéis (saída e monitor)")
   map("<leader>ab", function() M.choose_board() end, "Escolher placa")
   map("<leader>ao", M.choose_board_option, "Opções da placa")
   map("<leader>ap", function() M.choose_port(true) end, "Escolher porta")
@@ -482,7 +504,8 @@ for name, fn in pairs({
   ArduinoVerify = M.verify,
   ArduinoUpload = function() M.upload(false) end,
   ArduinoUploadMonitor = function() M.upload(true) end,
-  ArduinoMonitor = function() M.monitor() end,
+  ArduinoMonitor = M.toggle_monitor,
+  ArduinoClose = M.close_panels,
   ArduinoBoard = function() M.choose_board() end,
   ArduinoBoardOptions = M.choose_board_option,
   ArduinoPort = function() M.choose_port(true) end,

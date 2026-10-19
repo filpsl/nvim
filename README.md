@@ -19,5 +19,6 @@ Rodar o script de novo recompila e reinstala.
 
 Atalhos (só em `.ino`): `<leader>ab` placa, `<leader>ao` opções da placa,
 `<leader>av` compilar, `<leader>au` upload, `<leader>aU` upload + monitor,
-`<leader>am` monitor serial, `<leader>ap` porta, `<leader>ai` info. A placa
+`<leader>am` abre/fecha o monitor serial, `<leader>aq` fecha os painéis,
+`<leader>ap` porta, `<leader>ai` info. A placa
 escolhida fica no `sketch.yaml` do sketch.
