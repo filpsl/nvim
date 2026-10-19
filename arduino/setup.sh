@@ -5,9 +5,10 @@
 #
 # Uso: ~/.config/nvim/arduino/setup.sh   (pode rodar de novo para reinstalar)
 #
-# Deixa só dois binários em ~/.local/bin (ou $BIN_DIR). Go, módulos e cache de
-# compilação ficam numa pasta temporária apagada no fim; o Go só é baixado se
-# não houver um Go >= 1.22 no PATH.
+# Deixa só dois binários em ~/.local/bin (ou $BIN_DIR), além dos dados do próprio
+# arduino-cli em ~/.arduino15. Go, módulos, código-fonte, cache de compilação e
+# telemetria do Go ficam numa pasta temporária apagada no fim (também se der erro
+# ou com Ctrl+C); o Go só é baixado se não houver um Go >= 1.22 no PATH.
 set -euo pipefail
 
 ARDUINO_CLI_VERSION=1.5.1
@@ -75,7 +76,7 @@ info "Atualizando o índice de placas"
 # --- Go (só para compilar) -------------------------------------------------------
 go_ok() { # aceita Go >= 1.22 (exigido pelo go.mod do language server)
   local v major minor
-  v=$("$1" env GOVERSION 2>/dev/null) || return 1
+  v=$(XDG_CONFIG_HOME=$WORK/config "$1" env GOVERSION 2>/dev/null) || return 1
   v=${v#go}
   major=${v%%.*}
   minor=${v#*.}
@@ -97,7 +98,9 @@ fi
 # sem baixar outro toolchain por trás, sem cgo (dispensa gcc) e com caches no $WORK
 export GOTOOLCHAIN=local CGO_ENABLED=0 GOFLAGS=-modcacherw
 export GOMODCACHE=$WORK/gomod GOCACHE=$WORK/gocache GOPATH=$WORK/gopath
-info "Usando $("$GO" version)"
+# o Go grava contadores de telemetria em ~/.config/go: manda para o $WORK também
+run_go() { XDG_CONFIG_HOME=$WORK/config "$GO" "$@"; }
+info "Usando $(run_go version)"
 
 # --- arduino-language-server com os patches --------------------------------------
 info "Baixando arduino-language-server $LS_VERSION"
@@ -106,16 +109,16 @@ git -c advice.detachedHead=false clone -q --depth 1 --branch "$LS_VERSION" \
 cd "$WORK/als"
 git apply "$HERE/patches/0001-references.patch"
 # o bug de UTF-16 está na biblioteca go.bug.st/lsp: compila com uma cópia corrigida
-"$GO" mod download "$LSP_LIB"
+run_go mod download "$LSP_LIB"
 mkdir -p third_party
 cp -r "$GOMODCACHE/$LSP_LIB" third_party/go-lsp
 chmod -R u+w third_party/go-lsp
 git apply --directory=third_party/go-lsp "$HERE/patches/0002-utf16-getoffset.patch"
-"$GO" mod edit -replace "${LSP_LIB%@*}=./third_party/go-lsp"
-(cd third_party/go-lsp && "$GO" test ./textedits/ >/dev/null) || die "os testes do patch de UTF-16 falharam"
+run_go mod edit -replace "${LSP_LIB%@*}=./third_party/go-lsp"
+(cd third_party/go-lsp && run_go test ./textedits/ >/dev/null) || die "os testes do patch de UTF-16 falharam"
 
 info "Compilando o arduino-language-server (pode levar alguns minutos)"
-"$GO" build -o "$WORK/arduino-language-server" .
+run_go build -o "$WORK/arduino-language-server" .
 install -m755 "$WORK/arduino-language-server" "$BIN_DIR/arduino-language-server"
 info "Instalado em $BIN_DIR: arduino-cli e arduino-language-server"
 
